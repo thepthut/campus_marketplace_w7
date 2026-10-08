@@ -3,12 +3,18 @@ import 'package:provider/provider.dart';
 import '../models/item.dart';
 import '../models/cart_model.dart';
 import '../repositories/item_repository.dart';
+import '../repositories/favorites_repository.dart';
 import 'checkout_page.dart';
 import '../services/gemini_service.dart';
 
 class HomePage extends StatefulWidget {
   final ItemRepository repository;
-  const HomePage({super.key, required this.repository});
+  final FavoritesRepository favoritesRepository;
+  const HomePage({
+    super.key,
+    required this.repository,
+    required this.favoritesRepository,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -86,14 +92,43 @@ class _HomePageState extends State<HomePage> {
                 ),
                 title: Text(item.title),
                 subtitle: Text('${item.price} บาท'),
-                trailing: IconButton(
-                  icon: const Icon(Icons.add_shopping_cart),
-                  onPressed: () {
-                    context.read<CartModel>().add(item);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('เพิ่ม "${item.title}" ลงตะกร้าแล้ว')),
-                    );
-                  },
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ปุ่มที่ 1: กดถูกใจ (บันทึกลง Drift)
+                    IconButton(
+                      icon: const Icon(Icons.favorite_border),
+                      color: Colors.pink,
+                      onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
+                        try {
+                          await widget.favoritesRepository.addFavorite(
+                            item.id,
+                            item.title,
+                            item.price,
+                            item.imageUrl,
+                          );
+                          messenger.showSnackBar(
+                            SnackBar(content: Text('เพิ่ม "${item.title}" ลงรายการโปรดแล้ว')),
+                          );
+                        } catch (e) {
+                          messenger.showSnackBar(
+                            SnackBar(content: Text('บันทึกรายการโปรดไม่สำเร็จ: $e')),
+                          );
+                        }
+                      },
+                    ),
+                    // ปุ่มที่ 2: ตะกร้าเดิม
+                    IconButton(
+                      icon: const Icon(Icons.add_shopping_cart),
+                      onPressed: () {
+                        context.read<CartModel>().add(item);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('เพิ่ม "${item.title}" ลงตะกร้าแล้ว')),
+                        );
+                      },
+                    ),
+                  ],
                 ),
               );
             },

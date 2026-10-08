@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/listing_draft.dart';
 import '../services/gemini_vision_service.dart';
+import '../repositories/listing_draft_repository.dart';
+import 'my_drafts_page.dart';
 
 class SellItemPage extends StatefulWidget {
-  const SellItemPage({super.key});
+  final ListingDraftRepository draftRepository;
+  const SellItemPage({super.key, required this.draftRepository});
 
   @override
   State<SellItemPage> createState() => _SellItemPageState();
@@ -16,12 +19,11 @@ class _SellItemPageState extends State<SellItemPage> {
   bool _isAnalyzing = false;
   String? _errorMessage;
   bool _hasDraft = false;
+  bool _isSaving = false;
 
   final _titleController = TextEditingController();
   final _categoryController = TextEditingController();
   final _descriptionController = TextEditingController();
-
-  final List<ListingDraft> _confirmedDrafts = [];
 
   static const String _prompt = '''
    คุณคือผู้ช่วยเขียนประกาศขายของมือสองในตลาดนัดออนไลน์สำหรับนักศึกษามหาวิทยาลัย
@@ -97,33 +99,54 @@ class _SellItemPageState extends State<SellItemPage> {
     }
   }
 
-  void _confirmDraft() {
+  Future<void> _confirmDraft() async {
     if (_titleController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('กรุณากรอกชื่อประกาศก่อนยืนยัน')),
       );
       return;
     }
+    if (_selectedImage == null) return;
 
-    final confirmed = ListingDraft(
+    final draft = ListingDraft(
       title: _titleController.text.trim(),
       category: _categoryController.text.trim(),
       description: _descriptionController.text.trim(),
     );
 
     setState(() {
-      _confirmedDrafts.add(confirmed);
-      _selectedImage = null;
-      _hasDraft = false;
+      _isSaving = true;
       _errorMessage = null;
-      _titleController.clear();
-      _categoryController.clear();
-      _descriptionController.clear();
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('บันทึกร่างประกาศเรียบร้อยแล้ว')),
-    );
+    try {
+      // บันทึกถาวรลงฐานข้อมูล Drift แทนการเก็บใน State ชั่วคราว
+      await widget.draftRepository.saveDraft(draft, _selectedImage!.path);
+      if (!mounted) return;
+
+      setState(() {
+        _selectedImage = null;
+        _hasDraft = false;
+        _titleController.clear();
+        _categoryController.clear();
+        _descriptionController.clear();
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('บันทึกร่างประกาศเรียบร้อยแล้ว')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'บันทึกร่างไม่สำเร็จ: $e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
   }
 
   @override
@@ -131,6 +154,18 @@ class _SellItemPageState extends State<SellItemPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('ลงประกาศขายสินค้า'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'ร่างประกาศของฉัน',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => MyDraftsPage(repository: widget.draftRepository),
+              ),
+            ),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -249,14 +284,20 @@ class _SellItemPageState extends State<SellItemPage> {
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
-                onPressed: _confirmDraft,
+                onPressed: _isSaving ? null : _confirmDraft,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
-                icon: const Icon(Icons.check),
-                label: const Text('ยืนยันร่างประกาศ'),
+                icon: _isSaving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.check),
+                label: Text(_isSaving ? 'กำลังบันทึก...' : 'ยืนยันร่างประกาศ'),
               ),
             ],
           ],
